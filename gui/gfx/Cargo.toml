@@ -1,0 +1,22 @@
+[package]
+name = "yk-gfx"
+description = "yumekawaOS 2D graphics library (no_std + alloc): canvas, shapes, images, PNG, outline-font text"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+ab_glyph.workspace = true
+zune-png.workspace = true
+zune-core.workspace = true
+
+[dev-dependencies]
+# ホスト専用 (examples / tests)。カーネルや no_std ビルドには含まれない。
+png.workspace = true
+
+[lints]
+workspace = true

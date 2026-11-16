@@ -1,10 +1,11 @@
 # yumekawaOS Cargo workspace
 #
-# Phase 1 (Boot) 時点のメンバーはカーネルのみ。GUI / ユーザーアプリ等のクレートは
-# 実装するフェーズで追加する(空のクレートを先に置いて「あるように見せる」ことはしない)。
+# GUI / ユーザーアプリ等のクレートは実装するフェーズで追加する
+# (空のクレートを先に置いて「あるように見せる」ことはしない)。
+# Phase 3a: gui/gfx (2D 描画ライブラリ)。
 [workspace]
 resolver = "3"
-members = ["kernel"]
+members = ["kernel", "gui/gfx"]
 
 [workspace.package]
 version = "0.1.0"
@@ -25,6 +26,17 @@ font8x8 = { version = "=0.3.1", default-features = false }
 # カーネルヒープの空きリスト (first-fit + 隣接ブロックの結合)。Phase 2 のカーネルヒープで使用。
 # 既定の `use_spin` (spinning_top によるロック) は無効化し、カーネルの IrqSpinLock で保護する。
 linked_list_allocator = { version = "=0.10.6", default-features = false }
+
+# --- Phase 3a: 2D 描画ライブラリ (gui/gfx) ---
+# アウトラインフォント (TrueType/OpenType) のラスタライザ。no_std は `libm` feature で浮動小数点の
+# 数学関数を賄う (std feature は無効)。ttf-parser ベースでフォントを遅延解析するため、
+# 3MB 超の日本語フォントでも読み込み時の確保・処理がほぼ無い (fontdue は全グリフを先読みするため不採用)。
+ab_glyph = { version = "=0.2.32", default-features = false, features = ["libm"] }
+# PNG デコーダ (no_std + alloc)。SSE/AVX/ログ等の feature はすべて無効 (soft-float カーネルで使うため)。
+zune-png = { version = "=0.5.2", default-features = false }
+zune-core = { version = "=0.5.3", default-features = false }
+# ホスト側の examples / tests だけで使う PNG エンコーダ (カーネルにはリンクされない)。
+png = { version = "=0.18.1" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
