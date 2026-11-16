@@ -30,16 +30,33 @@ SECTIONS
     } :limine_requests
 
     . = ALIGN(CONSTANT(MAXPAGESIZE));
+    __limine_requests_end = .;
+
+    /*
+     * カーネルは Phase 2 で自前のページテーブルへ切り替える際、以下のシンボルで
+     * 各セクションの範囲を知り W^X の権限でマップする (kernel/src/memory/kernel_space.rs)。
+     * 各セクションの開始/終了はページ境界に揃える。
+     */
+    __text_start = .;
     .text : {
         *(.text .text.*)
     } :text
-
     . = ALIGN(CONSTANT(MAXPAGESIZE));
+    __text_end = .;
+
+    __rodata_start = .;
     .rodata : {
         *(.rodata .rodata.*)
+        /* 例外テーブル: (フォルトし得る命令, 復帰先) の組 (kernel/src/arch/x86_64/probe.rs) */
+        . = ALIGN(8);
+        __yk_extable_start = .;
+        KEEP(*(.yk_extable))
+        __yk_extable_end = .;
     } :rodata
-
     . = ALIGN(CONSTANT(MAXPAGESIZE));
+    __rodata_end = .;
+
+    __data_start = .;
     .data : {
         *(.data .data.*)
         *(.got .got.*)
@@ -49,6 +66,8 @@ SECTIONS
         *(.bss .bss.*)
         *(COMMON)
     } :data
+    . = ALIGN(CONSTANT(MAXPAGESIZE));
+    __data_end = .;
 
     __kernel_end = .;
 

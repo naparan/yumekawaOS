@@ -22,6 +22,9 @@ publish = false
 limine = { version = "=0.5.0", default-features = false }
 # パブリックドメインの 8x8 ビットマップフォント(Phase 1 のスプラッシュ用)。
 font8x8 = { version = "=0.3.1", default-features = false }
+# カーネルヒープの空きリスト (first-fit + 隣接ブロックの結合)。Phase 2 のカーネルヒープで使用。
+# 既定の `use_spin` (spinning_top によるロック) は無効化し、カーネルの IrqSpinLock で保護する。
+linked_list_allocator = { version = "=0.10.6", default-features = false }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

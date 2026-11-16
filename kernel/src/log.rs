@@ -1,7 +1,14 @@
 //! カーネルログ (§38)。
 //!
 //! レベルは TRACE / DEBUG / INFO / WARN / ERROR / FATAL の 6 段階。
-//! 出力先は COM1 シリアル。書式:
+//! 出力先は COM1 シリアルと、直近のログを保持するリングバッファ ([`LOG_RING_SIZE`] バイト)。
+//! リングバッファはシリアルが無い実機でも残り、Kernel Panic 画面に表示される。
+//!
+//! ロガーの状態は [`IrqSpinLock`] で保護する (割り込みハンドラからもログを出せる)。
+//! 割り込み・例外ハンドラの中でロックが取れない (= 割り込まれたコードがログ出力中) 場合は、
+//! 待たずに COM1 へ直接書き出す (行が混ざることはあるが、デッドロックはしない)。
+//!
+//! 書式:
 //!
 //! ```text
 //! [ INFO] boot: message
@@ -15,7 +22,7 @@ use core::fmt::{self, Write};
 use core::sync::atomic::{AtomicU8, Ordering};
 
 use crate::drivers::serial::{self, SerialError, SerialPort};
-use crate::sync::SpinLock;
+use crate::sync::IrqSpinLock;
 
 /// ログレベル。値が大きいほど重大。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -70,19 +77,80 @@ pub const DEFAULT_MIN_LEVEL: Level = if cfg!(debug_assertions) {
 
 static MIN_LEVEL: AtomicU8 = AtomicU8::new(DEFAULT_MIN_LEVEL as u8);
 
-static SINK: SpinLock<Option<SerialPort>> = SpinLock::new(None);
+/// 直近ログのリングバッファの大きさ。
+pub const LOG_RING_SIZE: usize = 16 * 1024;
+
+/// 直近のログを保持するリングバッファ (古いものから上書き)。
+struct LogRing {
+    buf: [u8; LOG_RING_SIZE],
+    /// 書き込んだ総バイト数 (次の書き込み位置 = written % SIZE)
+    written: u64,
+}
+
+impl LogRing {
+    fn push(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.buf[(self.written % LOG_RING_SIZE as u64) as usize] = b;
+            self.written += 1;
+        }
+    }
+
+    /// 末尾から最大 `out.len()` バイトを、行の先頭から始まるように `out` へコピーする。
+    fn copy_tail(&self, out: &mut [u8]) -> usize {
+        let available = self.written.min(LOG_RING_SIZE as u64);
+        let n = available.min(out.len() as u64);
+        let start = self.written - n;
+        for (i, slot) in out.iter_mut().take(n as usize).enumerate() {
+            *slot = self.buf[((start + i as u64) % LOG_RING_SIZE as u64) as usize];
+        }
+        // 途中から始まった最初の行は捨てる
+        let mut skip = 0;
+        if self.written > n
+            && let Some(nl) = out[..n as usize].iter().position(|&b| b == b'\n')
+        {
+            skip = nl + 1;
+        }
+        out.copy_within(skip..n as usize, 0);
+        n as usize - skip
+    }
+}
+
+struct Logger {
+    serial: Option<SerialPort>,
+    ring: LogRing,
+}
+
+/// シリアルとリングバッファの両方に書く。
+struct Tee<'a>(&'a mut Logger);
+
+impl Write for Tee<'_> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        self.0.ring.push(s.as_bytes());
+        if let Some(port) = self.0.serial.as_mut() {
+            port.write_str(s)?;
+        }
+        Ok(())
+    }
+}
+
+static LOGGER: IrqSpinLock<Logger> = IrqSpinLock::new(Logger {
+    serial: None,
+    ring: LogRing {
+        buf: [0; LOG_RING_SIZE],
+        written: 0,
+    },
+});
 
 /// ロガーを初期化する(COM1 を初期化して出力先にする)。
 ///
-/// UART が存在しない場合はエラーを返し、以降のログは破棄される。
+/// UART が存在しない場合はエラーを返す。その場合もリングバッファへの記録は続く。
 pub fn init() -> Result<(), SerialError> {
     let port = serial::init_com1()?;
-    *SINK.lock() = Some(port);
+    LOGGER.lock().serial = Some(port);
     Ok(())
 }
 
 /// 出力する最小レベルを変更する。
-#[allow(dead_code)] // Phase 1 のカーネル本体からは未使用 (Phase 2 以降でコマンドライン等から設定する想定)
 pub fn set_min_level(level: Level) {
     MIN_LEVEL.store(level as u8, Ordering::Relaxed);
 }
@@ -108,16 +176,48 @@ fn short_module(module: &str) -> &str {
 
 #[doc(hidden)]
 pub fn write_record(level: Level, module: &str, args: fmt::Arguments<'_>) {
-    let mut sink = SINK.lock();
-    if let Some(port) = sink.as_mut() {
-        let _ = writeln!(
-            port,
-            "[{}] {}: {}",
+    let guard = if crate::interrupts::in_interrupt() {
+        // ハンドラ内: 割り込まれたコードがロガーを保持している可能性があるので待たない
+        LOGGER.try_lock()
+    } else {
+        Some(LOGGER.lock())
+    };
+    match guard {
+        Some(mut logger) => {
+            let _ = writeln!(
+                Tee(&mut logger),
+                "[{}] {}: {}",
+                level.label(),
+                short_module(module),
+                args
+            );
+        }
+        None => serial::emergency_write(format_args!(
+            "[{}] {}: {} (logger busy; written directly)\n",
             level.label(),
             short_module(module),
             args
-        );
+        )),
     }
+}
+
+/// 直近のログを `out` にコピーする (行の先頭から)。コピーしたバイト数を返す。
+#[allow(dead_code)] // Phase 3 以降 (画面上のログ表示・Terminal) で使う想定
+pub fn recent(out: &mut [u8]) -> usize {
+    LOGGER.lock().ring.copy_tail(out)
+}
+
+/// パニック経路専用: ロックを奪って直近のログをコピーする。
+///
+/// # Safety
+///
+/// 割り込み無効で、ロガーを保持していたコードが二度と実行されないこと
+/// (パニック処理中で CPU を停止する直前)。
+pub unsafe fn recent_for_panic(out: &mut [u8]) -> usize {
+    // SAFETY: 呼び出し元の契約により、保持者は再開しない。copy_tail は範囲チェック付きの
+    // 読み出しだけなので、保持者が更新途中でも境界外アクセスは起きない。
+    let logger = unsafe { LOGGER.force_lock() };
+    logger.ring.copy_tail(out)
 }
 
 /// 指定レベルでログを出す。

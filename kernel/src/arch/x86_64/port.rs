@@ -50,3 +50,32 @@ impl Port {
         }
     }
 }
+
+/// 32bit 幅の I/O ポート (ACPI PM timer 等)。
+#[derive(Debug)]
+pub struct Port32 {
+    port: u16,
+}
+
+impl Port32 {
+    /// I/O ポートハンドルを作る。
+    ///
+    /// # Safety
+    ///
+    /// [`Port::new`] と同じ条件 (32bit アクセスが許されること)。
+    pub const unsafe fn new(port: u16) -> Self {
+        Self { port }
+    }
+
+    /// ポートから 4 バイト読む。
+    #[inline]
+    pub fn read(&mut self) -> u32 {
+        let value: u32;
+        // SAFETY: `Port32::new` の契約により、読み取りはメモリ安全性に影響しない。
+        unsafe {
+            asm!("in eax, dx", out("eax") value, in("dx") self.port,
+                 options(nomem, nostack, preserves_flags));
+        }
+        value
+    }
+}

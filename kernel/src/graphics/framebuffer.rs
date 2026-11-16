@@ -148,6 +148,10 @@ pub struct Framebuffer {
 
 const BYTES_PER_PIXEL: usize = 4;
 
+// SAFETY: Framebuffer は framebuffer メモリへの唯一の書き込み権 (FramebufferInfo を消費して作る)
+// を表し、スレッド/コンテキスト間で移動しても別名は生じない。共有 (Sync) はしない。
+unsafe impl Send for Framebuffer {}
+
 impl Framebuffer {
     /// ブートローダの framebuffer 情報を検証して使用可能にする。
     pub fn new(info: FramebufferInfo) -> Result<Self, FramebufferError> {
