@@ -1,0 +1,20 @@
+# yk-gfx を「x86_64-unknown-none (soft-float, SSE/x87 なし)」でリンク・実行できることと、
+# その速度を確認するための使い捨てプローブ。ワークスペースには含めない (独自の [workspace])。
+# カーネルには組み込まれない。使い方は src/main.rs の先頭を参照。
+[package]
+name = "softfloat-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+yk-gfx = { path = "../.." }
+
+[profile.release]
+panic = "abort"
+opt-level = 3
+
+[profile.dev]
+panic = "abort"
