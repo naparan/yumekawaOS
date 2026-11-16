@@ -1,0 +1,8 @@
+# Rust ビルド成果物
+/target/
+
+# scripts/*.sh の出力(build/kernel, build/bootloader, build/yumekawaOS.iso, スクリーンショット等)
+/build/
+
+# scripts/fetch-limine.sh が取得する Limine バイナリ(コミットしない)
+/deps/
