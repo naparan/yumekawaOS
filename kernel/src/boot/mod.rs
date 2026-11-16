@@ -62,9 +62,10 @@ pub struct BootInfo {
     /// ファームウェアの種類。
     pub firmware: FirmwareKind,
     /// HHDM (Higher Half Direct Map) のオフセット。
-    /// 物理アドレス `p` は仮想アドレス `p + hhdm_offset` でアクセスできる
-    /// (base revision 3 では「使用可能・ブートローダ回収可能・カーネル・framebuffer」
-    /// 等の領域のみマップされる点に注意)。
+    /// 物理アドレス `p` は仮想アドレス `p + hhdm_offset` でアクセスできる。
+    /// ただし base revision 3 でマップされるのは usable / bootloader-reclaimable /
+    /// kernel-and-modules / framebuffer 等の領域だけで、ACPI 領域・予約領域・MMIO は
+    /// マップされない点に注意。
     pub hhdm_offset: u64,
     /// 物理メモリマップ。
     pub memory_map: MemoryMap,
@@ -74,7 +75,7 @@ pub struct BootInfo {
     pub framebuffer_count: usize,
     /// カーネルがロードされた物理/仮想ベースアドレス。
     pub kernel_address: Option<KernelAddress>,
-    /// ACPI RSDP のアドレス (Phase 2 以降の ACPI 用)。
+    /// ACPI RSDP の**物理**アドレス (base revision 3 の仕様。HHDM 上にはマップされない)。
     pub rsdp_address: Option<u64>,
     /// カーネルコマンドライン (limine.conf の `cmdline:`)。
     pub cmdline: &'static str,

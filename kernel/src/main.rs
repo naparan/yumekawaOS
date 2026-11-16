@@ -207,7 +207,7 @@ fn log_boot_info(info: &BootInfo) {
         None => warn!("bootloader did not report the kernel address"),
     }
     match info.rsdp_address {
-        Some(addr) => debug!("acpi rsdp: {addr:#x}"),
+        Some(addr) => debug!("acpi rsdp (physical): {addr:#x}"),
         None => warn!("no ACPI RSDP was provided"),
     }
     if !info.cmdline.is_empty() {
