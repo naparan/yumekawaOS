@@ -1,0 +1,45 @@
+# yumekawaOS Cargo workspace
+#
+# Phase 1 (Boot) 時点のメンバーはカーネルのみ。GUI / ユーザーアプリ等のクレートは
+# 実装するフェーズで追加する(空のクレートを先に置いて「あるように見せる」ことはしない)。
+[workspace]
+resolver = "3"
+members = ["kernel"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "MIT OR Apache-2.0"
+authors = ["yumekawaOS contributors"]
+repository = "https://github.com/naparan/yumekawaos"
+publish = false
+
+# 外部依存はここでバージョンを完全固定する(docs/dependencies.md も更新すること)。
+[workspace.dependencies]
+# Limine boot protocol の Rust バインディング。
+# 0.6.x は nightly 機能 (ptr_metadata) を要求するため、stable で通る 0.5.0 に固定。
+limine = { version = "=0.5.0", default-features = false }
+# パブリックドメインの 8x8 ビットマップフォント(Phase 1 のスプラッシュ用)。
+font8x8 = { version = "=0.3.1", default-features = false }
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_debug_implementations = "warn"
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+# すべての unsafe ブロックに `// SAFETY:` コメントを要求する(§32)。
+undocumented_unsafe_blocks = "deny"
+missing_safety_doc = "deny"
+multiple_unsafe_ops_per_block = "warn"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+opt-level = 3
+codegen-units = 1
+# GDB / パニック解析用に行番号情報だけ残す
+debug = "line-tables-only"
