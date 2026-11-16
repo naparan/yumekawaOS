@@ -1,0 +1,5 @@
+# scripts/*.sh は scripts/lib/common.sh を相対パスで source する
+source-path=SCRIPTDIR
+external-sources=true
+# QEMU の -drive/-device 引数はカンマ区切りが正しい書式
+disable=SC2054

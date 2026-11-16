@@ -152,8 +152,8 @@ run_case() {
         # 画面描画とマーカー出力は同期しているが、念のため少し待ってから取得
         sleep 1
         python3 "$TOOL" monitor "$mon" "screendump ${ppm}" >/dev/null
-        local i
-        for i in 1 2 3 4 5 6 7 8 9 10; do
+        local _
+        for _ in 1 2 3 4 5 6 7 8 9 10; do
             [ -s "$ppm" ] && break
             sleep 1
         done

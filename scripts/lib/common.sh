@@ -1,5 +1,7 @@
 # shellcheck shell=bash
 # yumekawaOS scripts 共通処理 (source して使う)
+# ここで定義する変数は source 側のスクリプトで使う
+# shellcheck disable=SC2034
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BUILD_DIR="${REPO_ROOT}/build"
