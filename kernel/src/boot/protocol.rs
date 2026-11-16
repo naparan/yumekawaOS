@@ -17,8 +17,8 @@ use limine::request::{
 };
 
 use super::{
-    BootError, BootInfo, BootloaderInfo, ChannelMask, FirmwareKind, FramebufferInfo, KernelAddress,
-    MemoryKind, MemoryMap,
+    BootError, BootInfo, BootString, BootloaderInfo, ChannelMask, FirmwareKind, FramebufferInfo,
+    KernelAddress, MEMORY_MAP_CAPACITY, MemoryKind, MemoryMap, MemoryRegion,
 };
 
 /// 要求する Limine base revision。
@@ -117,18 +117,37 @@ pub fn take() -> Result<BootInfo, BootError> {
         .ok_or(BootError::MissingResponse("HHDM"))?
         .offset();
 
-    let memory_map = MemoryMap {
-        entries: MEMORY_MAP_REQUEST
-            .get_response()
-            .ok_or(BootError::MissingResponse("memory map"))?
-            .entries(),
+    let entries = MEMORY_MAP_REQUEST
+        .get_response()
+        .ok_or(BootError::MissingResponse("memory map"))?
+        .entries();
+    if entries.len() > MEMORY_MAP_CAPACITY {
+        return Err(BootError::MemoryMapTooLarge {
+            entries: entries.len(),
+            capacity: MEMORY_MAP_CAPACITY,
+        });
+    }
+    let mut memory_map = MemoryMap {
+        entries: [MemoryRegion {
+            base: 0,
+            length: 0,
+            kind: MemoryKind::Unknown,
+        }; MEMORY_MAP_CAPACITY],
+        len: entries.len(),
     };
+    for (slot, e) in memory_map.entries.iter_mut().zip(entries) {
+        *slot = MemoryRegion {
+            base: e.base,
+            length: e.length,
+            kind: memory_kind(e.entry_type),
+        };
+    }
 
     let bootloader = BOOTLOADER_INFO_REQUEST
         .get_response()
         .map(|r| BootloaderInfo {
-            name: r.name(),
-            version: r.version(),
+            name: BootString::copy_from(r.name()),
+            version: BootString::copy_from(r.version()),
         });
 
     let firmware = match FIRMWARE_TYPE_REQUEST
@@ -150,10 +169,12 @@ pub fn take() -> Result<BootInfo, BootError> {
 
     let rsdp_address = RSDP_REQUEST.get_response().map(|r| r.address() as u64);
 
-    let cmdline = EXECUTABLE_CMDLINE_REQUEST
-        .get_response()
-        .and_then(|r| r.cmdline().to_str().ok())
-        .unwrap_or("");
+    let cmdline = BootString::copy_from(
+        EXECUTABLE_CMDLINE_REQUEST
+            .get_response()
+            .and_then(|r| r.cmdline().to_str().ok())
+            .unwrap_or(""),
+    );
 
     let (framebuffer, framebuffer_count) = match FRAMEBUFFER_REQUEST.get_response() {
         Some(response) => {
@@ -214,7 +235,7 @@ fn memory_model_raw(model: limine::framebuffer::MemoryModel) -> u8 {
 }
 
 /// Limine のメモリ種別をカーネルの型へ変換する。
-pub(super) fn memory_kind(entry_type: EntryType) -> MemoryKind {
+fn memory_kind(entry_type: EntryType) -> MemoryKind {
     match entry_type {
         EntryType::USABLE => MemoryKind::Usable,
         EntryType::RESERVED => MemoryKind::Reserved,

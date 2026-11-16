@@ -68,7 +68,7 @@ extern "C" fn kmain() -> ! {
         Ok(info) => info,
         Err(e) => halt_with_fatal(format_args!("failed to read boot information: {e}")),
     };
-    apply_cmdline(boot_info.cmdline);
+    apply_cmdline(boot_info.cmdline.as_str());
     log_boot_info(&boot_info);
 
     let cpu = CpuIdentity::read();
@@ -106,8 +106,14 @@ extern "C" fn kmain() -> ! {
         fb.width(),
         fb.height(),
         usable_bytes / MIB,
-        boot_info.bootloader.map_or("unknown", |b| b.name),
-        boot_info.bootloader.map_or("", |b| b.version),
+        boot_info
+            .bootloader
+            .as_ref()
+            .map_or("unknown", |b| b.name.as_str()),
+        boot_info
+            .bootloader
+            .as_ref()
+            .map_or("", |b| b.version.as_str()),
         firmware_label(boot_info.firmware),
     );
     if footer.is_truncated() {
@@ -212,6 +218,9 @@ fn log_boot_info(info: &BootInfo) {
     }
     if !info.cmdline.is_empty() {
         info!("cmdline: {}", info.cmdline);
+    }
+    if info.cmdline.is_truncated() {
+        warn!("cmdline was truncated to {} bytes", boot::CMDLINE_CAPACITY);
     }
 
     if info.memory_map.is_empty() {

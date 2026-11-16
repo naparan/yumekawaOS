@@ -5,6 +5,11 @@
 //!
 //! [`take`] は 1 度しか成功しない。これにより、framebuffer への書き込み権
 //! ([`FramebufferInfo`]) がカーネル内で一意に所有されることを保証する。
+//!
+//! Phase 2 から、[`take`] はメモリマップと文字列 (コマンドライン・ブートローダ名) を
+//! **カーネル自身のメモリへコピー**して返す。Limine の応答は bootloader-reclaimable 領域に
+//! あり、メモリ管理の初期化後にその領域を回収 (フレームアロケータへ返却) するため、
+//! 回収後も [`BootInfo`] を安全に使い続けられるようにする。
 
 mod protocol;
 
@@ -27,6 +32,13 @@ pub enum BootError {
     },
     /// 必須の応答が返らなかった。
     MissingResponse(&'static str),
+    /// メモリマップの領域が多すぎて保持できない。
+    MemoryMapTooLarge {
+        /// ブートローダが返した領域数
+        entries: usize,
+        /// 保持できる上限
+        capacity: usize,
+    },
 }
 
 impl fmt::Display for BootError {
@@ -50,6 +62,10 @@ impl fmt::Display for BootError {
             Self::MissingResponse(what) => {
                 write!(f, "bootloader did not answer the {what} request")
             }
+            Self::MemoryMapTooLarge { entries, capacity } => write!(
+                f,
+                "memory map has {entries} regions (only {capacity} are supported)"
+            ),
         }
     }
 }
@@ -77,17 +93,72 @@ pub struct BootInfo {
     pub kernel_address: Option<KernelAddress>,
     /// ACPI RSDP の**物理**アドレス (base revision 3 の仕様。HHDM 上にはマップされない)。
     pub rsdp_address: Option<u64>,
-    /// カーネルコマンドライン (limine.conf の `cmdline:`)。
-    pub cmdline: &'static str,
+    /// カーネルコマンドライン (limine.conf の `cmdline:`)。カーネル内にコピー済み。
+    pub cmdline: BootString<CMDLINE_CAPACITY>,
 }
 
-/// ブートローダ名・バージョン。
+/// コマンドラインの最大長 (超えた分は切り捨て、[`BootString::is_truncated`] が真になる)。
+pub const CMDLINE_CAPACITY: usize = 512;
+
+/// ブートローダから受け取った文字列のコピー (固定長)。
+#[derive(Clone, Copy)]
+pub struct BootString<const N: usize> {
+    buf: [u8; N],
+    len: usize,
+    truncated: bool,
+}
+
+impl<const N: usize> BootString<N> {
+    /// 文字列をコピーする (容量を超えた分は文字境界で切り捨て)。
+    pub fn copy_from(s: &str) -> Self {
+        let mut take = s.len().min(N);
+        while !s.is_char_boundary(take) {
+            take -= 1;
+        }
+        let mut buf = [0u8; N];
+        buf[..take].copy_from_slice(&s.as_bytes()[..take]);
+        Self {
+            buf,
+            len: take,
+            truncated: take < s.len(),
+        }
+    }
+
+    /// 文字列。
+    pub fn as_str(&self) -> &str {
+        core::str::from_utf8(&self.buf[..self.len]).unwrap_or("")
+    }
+
+    /// 容量不足で切り捨てたか。
+    pub fn is_truncated(&self) -> bool {
+        self.truncated
+    }
+
+    /// 空か。
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
+impl<const N: usize> fmt::Debug for BootString<N> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self.as_str(), f)
+    }
+}
+
+impl<const N: usize> fmt::Display for BootString<N> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// ブートローダ名・バージョン (カーネル内にコピー済み)。
 #[derive(Debug, Clone, Copy)]
 pub struct BootloaderInfo {
     /// 例: "Limine"
-    pub name: &'static str,
+    pub name: BootString<32>,
     /// 例: "11.4.1"
-    pub version: &'static str,
+    pub version: BootString<32>,
 }
 
 /// ファームウェアの種類。
@@ -170,38 +241,34 @@ impl MemoryRegion {
     }
 }
 
-/// Limine が渡す物理メモリマップへの読み取り専用ビュー。
+/// 物理メモリマップ (Limine の応答をカーネル内にコピーしたもの)。
 ///
 /// エントリはベースアドレス昇順・重複なし (Limine の仕様)。
-///
-/// # 寿命について
-///
-/// 実体は `BootloaderReclaimable` 領域にある。Phase 2 で
-/// ブートローダ回収可能領域をフレームアロケータへ戻す場合は、**先に必要な情報を
-/// カーネル自身のメモリへコピーしてから**回収すること。
+/// Phase 1 では Limine の応答 (bootloader-reclaimable 領域) を直接参照していたが、
+/// Phase 2 でその領域を回収するため、[`take`] の時点でコピーするようにした。
 #[derive(Clone, Copy)]
 pub struct MemoryMap {
-    entries: &'static [&'static ::limine::memory_map::Entry],
+    entries: [MemoryRegion; MEMORY_MAP_CAPACITY],
+    len: usize,
 }
+
+/// 保持できるメモリマップの領域数。
+pub const MEMORY_MAP_CAPACITY: usize = 512;
 
 impl MemoryMap {
     /// 領域数。
     pub fn len(&self) -> usize {
-        self.entries.len()
+        self.len
     }
 
     /// 領域が 1 つも無いか。
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.len == 0
     }
 
     /// 全領域を走査する。
     pub fn iter(&self) -> impl Iterator<Item = MemoryRegion> + '_ {
-        self.entries.iter().map(|e| MemoryRegion {
-            base: e.base,
-            length: e.length,
-            kind: protocol::memory_kind(e.entry_type),
-        })
+        self.entries[..self.len].iter().copied()
     }
 
     /// 指定種別の合計バイト数。
