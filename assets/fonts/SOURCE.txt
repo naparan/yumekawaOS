@@ -1,0 +1,8 @@
+M PLUS Rounded 1c (Regular / Bold)
+Source : https://github.com/google/fonts/tree/ce6523df69fcaec9534b128945bf47cd92bdc5b2/ofl/mplusrounded1c
+Commit : ce6523df69fcaec9534b128945bf47cd92bdc5b2 (google/fonts)
+License: SIL OFL 1.1 (see OFL.txt). Copyright 2016 The Rounded M+ Project Authors.
+Note   : google/fonts has no OFL.txt for this family; OFL.txt here is the unmodified OFL 1.1 text
+         (taken from ofl/mplus1p/OFL.txt of the same commit) with the copyright line taken from
+         the font name table (ID 0) and METADATA.pb.
+Verify : sha256sum -c SHA256SUMS
