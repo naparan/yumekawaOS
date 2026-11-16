@@ -8,6 +8,7 @@
 //! - 図形 (線・角丸矩形・楕円・グラデーション)、画像転送 (コピー/アルファ/拡縮)
 //! - `png` モジュール: PNG デコード (サイズ上限つき)
 //! - `text` モジュール: アウトラインフォントの UTF-8 テキスト描画 (グリフキャッシュ・折り返し)
+//! - `present` モジュール: バックバッファ → framebuffer の画素形式変換
 //! - `bitmap` モジュール: ヒープ不要のビットマップフォント描画 (早期コンソール/パニック画面用)
 //! - [`Rect`] / [`DamageList`]: 矩形演算とダメージ管理
 
@@ -22,6 +23,7 @@ pub mod color;
 pub mod error;
 pub mod image;
 pub mod png;
+pub mod present;
 pub mod rect;
 mod shapes;
 pub mod text;
