@@ -131,19 +131,36 @@ KVM が使える環境では自動で `-accel kvm` を使う (`YUMEKAWA_NO_KVM=1
 
 ### scripts/test-boot.sh
 
+各ケースで QEMU (q35, OVMF, ヘッドレス) を起動し、シリアルログ・QEMU monitor で検証する。
+`selftest=...` のケースは、`build/iso_root` をコピーして `limine.conf` の `cmdline:` を書き換えた検証用 ISO
+(`build/test/yumekawaOS-selftest-<名前>.iso`) を作って起動する。カーネルは
+`SELFTEST <suite>.<item>: PASS|FAIL|SKIP (...)` と `SELFTEST_DONE suite=... passed=N failed=N skipped=N` を出力する。
+
 | ケース | 内容 | 合格条件 |
 | --- | --- | --- |
-| `cdrom` | ISO を IDE CD-ROM として UEFI 起動 | シリアルに `YUMEKAWAOS_BOOT_OK` / スクリーンショット検査に合格 |
-| `usb` | ISO のバイト列をそのまま raw ディスクにして `qemu-xhci` + `usb-storage` で UEFI 起動 (USB メモリへ dd した状態の代理) | 同上 |
-| `panic` | `cmdline: selftest=panic` に書き換えた検証用 ISO で起動 | `KERNEL PANIC at kernel/src/main.rs:<行>:<列>: selftest: ...` と `system halted.` が出て、起動完了マーカーが出ない |
+| `cdrom` | ISO を IDE CD-ROM として UEFI 起動 | `YUMEKAWAOS_BOOT_OK` / スクリーンショット検査 / ERROR・FATAL・例外のログが無い |
+| `usb` | ISO のバイト列をそのまま raw ディスクにして `qemu-xhci` + `usb-storage` で UEFI 起動 | 同上 |
+| `panic` | `selftest=panic` | `KERNEL PANIC at kernel/src/main.rs:<行>:<列>: selftest: ...`・`system halted.`・パニック画面の画像検査、起動完了マーカーが出ない |
+| `memory` | `selftest=memory`、`-m 3G`、`-cpu qemu64,+smep,+smap,+pdpe1gb` | memory スイートが全 PASS (SKIP 不可)、1GiB ページが使われている |
+| `exceptions` | `selftest=exceptions`、`-cpu qemu64,+smep,+smap,+pdpe1gb` | exceptions スイートが全 PASS (SKIP 不可) |
+| `timer` | `selftest=timer` | timer スイートが全 PASS、`TIMER_MARK start/end` の間のホスト実時間とカーネルの uptime の差が 15% + 250ms 以内 |
+| `keyboard` | 通常起動後、QEMU monitor の `sendkey a` `b` `ret` `right` | スキャンコード (set 1) `1e 9e 30 b0 1c 9c e0 4d e0 cd` を受信、エラーログ無し |
+| `stackoverflow` | `selftest=stackoverflow` | `CPU exception #DF double fault` と `kernel stack overflow detected: stack 'kernel-main'`、パニック画面の画像検査 |
+| `idle` | 通常起動後 `IDLE_SECONDS` (既定 30) 秒アイドル | QEMU が生存、ERROR・FATAL・例外・未登録割り込みのログが無い、ハートビートが進む |
 
-スクリーンショット検査: QEMU monitor の `screendump` (PPM) を PNG に変換して
-`build/screenshots/boot-<case>.png` に保存し、「色数 16 以上」「最頻色が画面の 50% 以下」
-「最上行と最下行の色が異なる (グラデーション背景)」を確認する。
+KVM が使える環境では `-cpu host` になるため、memory / exceptions ケースの SMEP/SMAP/1GiB ページは
+ホスト CPU の対応に従う (非対応なら SKIP となり失敗扱い)。
 
-タイムアウト (`BOOT_TIMEOUT`、既定 300 秒) までにマーカーが出なければ失敗。QEMU が途中で
-終了した場合も失敗。失敗時はシリアルログ末尾と QEMU のログを表示し、終了コード 1 を返す。
-`TEST_CASES="cdrom usb"` のように実行するケースを選べる。
+スクリーンショット検査 (`scripts/lib/qemu_tool.py`):
+
+- スプラッシュ (`check-image`): 色数 16 以上、最頻色が画面の 50% 以下、最上行と最下行の色が異なる
+- パニック画面 (`check-panic-screen`): 上部 1/8 の 60% 以上がヘッダ色 (255,105,180) で白い文字がある、
+  本文の 60% 以上が背景色 (48,24,64) で文字 (背景以外) が 0.5% 以上
+
+スクリーンショットは `build/screenshots/boot-<case>.png`。タイムアウト (`BOOT_TIMEOUT`、既定 300 秒) までに
+期待した結果 (起動完了マーカー / `system halted.`) にならなければ失敗。失敗時はシリアルログ末尾と QEMU のログを表示し、
+終了コード 1 を返す。`TEST_CASES="cdrom usb"` のように実行するケースを選べる。
+TCG (KVM なし, 2 コア) での所要時間は全 9 ケースで約 90 秒。
 
 ## 6. 再現性
 
